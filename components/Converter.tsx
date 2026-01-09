@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import { Download, FileText, RefreshCw } from "lucide-react";
+import { Download, FileText, RefreshCw, Sparkles, Code2, Eye } from "lucide-react";
 import { saveAs } from "file-saver";
 import "katex/dist/katex.min.css";
 import { generateDocx } from "@/app/actions";
@@ -16,24 +16,16 @@ export default function Converter() {
   );
   const [isExporting, setIsExporting] = useState(false);
 
-  // Normalized input for rendering and exporting
-  // We process the input on the fly to support \( ... \) and \[ ... \]
   const normalizedInput = normalizeLatex(input);
 
-  // Function to handle Docx Export
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      // Use the normalized input for export as well
       const base64Data = await generateDocx(normalizedInput);
-
-      // Convert Base64 to Blob
       const response = await fetch(
         `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${base64Data}`
       );
       const blob = await response.blob();
-
-      // Save the file
       saveAs(blob, "converted-math.docx");
     } catch (error) {
       console.error("Export failed:", error);
@@ -44,63 +36,88 @@ export default function Converter() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
+    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col overflow-hidden">
+      {/* Decorative Background Elements */}
+      <div className="fixed top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
+        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-600/20 blur-[120px]" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-violet-600/20 blur-[120px]" />
+      </div>
+
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center gap-2">
-          <div className="bg-indigo-600 p-2 rounded-lg text-white">
-            <FileText size={20} />
+      <header className="px-6 py-4 flex items-center justify-between border-b border-white/10 backdrop-blur-md bg-slate-900/50 sticky top-0 z-20">
+        <div className="flex items-center gap-3">
+          <div className="bg-gradient-to-br from-indigo-500 to-violet-600 p-2.5 rounded-xl shadow-lg shadow-indigo-500/20">
+            <Sparkles size={20} className="text-white" />
           </div>
-          <h1 className="text-xl font-bold text-gray-800">
-            AI Latex to Word Converter
-          </h1>
+          <div>
+            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+              AI Latex to Word
+            </h1>
+            <p className="text-xs text-slate-400 font-medium tracking-wide">
+              SMART CONVERTER
+            </p>
+          </div>
         </div>
         <button
           onClick={handleExport}
           disabled={isExporting}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          className="group flex items-center gap-2 bg-white text-slate-900 px-5 py-2.5 rounded-xl font-semibold transition-all hover:bg-indigo-50 hover:shadow-lg hover:shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
         >
           {isExporting ? (
-            <RefreshCw className="animate-spin" size={18} />
+            <RefreshCw className="animate-spin text-indigo-600" size={18} />
           ) : (
-            <Download size={18} />
+            <Download className="text-indigo-600 group-hover:-translate-y-0.5 transition-transform" size={18} />
           )}
           {isExporting ? "Generating..." : "Export to .docx"}
         </button>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col md:flex-row h-[calc(100vh-64px)] overflow-hidden">
-        {/* Left Column: Input */}
-        <div className="w-full md:w-1/2 flex flex-col border-r border-gray-200 bg-white">
-          <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 text-sm font-medium text-gray-500 uppercase tracking-wide">
-            Markdown Input (LaTeX supported)
+      <main className="flex-1 p-6 h-[calc(100vh-80px)]">
+        <div className="flex flex-col md:flex-row gap-6 h-full max-w-[1920px] mx-auto">
+          
+          {/* Left Column: Input */}
+          <div className="w-full md:w-1/2 flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden ring-1 ring-white/10 transition-all duration-300 hover:shadow-indigo-500/10">
+            <div className="bg-slate-50/80 backdrop-blur-sm px-5 py-3 border-b border-slate-200 flex items-center gap-2">
+              <Code2 size={16} className="text-indigo-500" />
+              <span className="text-sm font-semibold text-slate-600 uppercase tracking-wider">
+                Markdown / LaTeX Input
+              </span>
+            </div>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              className="flex-1 p-6 resize-none focus:outline-none font-mono text-sm leading-relaxed text-slate-800 bg-white selection:bg-indigo-100"
+              placeholder="Paste your AI-generated math content here..."
+              spellCheck={false}
+            />
           </div>
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            className="flex-1 p-6 resize-none focus:outline-none font-mono text-sm leading-relaxed"
-            placeholder="Type your markdown here..."
-            spellCheck={false}
-          />
-        </div>
 
-        {/* Right Column: Preview */}
-        <div className="w-full md:w-1/2 flex flex-col bg-gray-50">
-          <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 text-sm font-medium text-gray-500 uppercase tracking-wide flex justify-between items-center">
-            <span>Live Preview</span>
-            <span className="text-xs text-gray-400 normal-case flex items-center gap-1">
-              Powered by <span className="font-semibold text-gray-500">KaTeX</span>
-            </span>
+          {/* Right Column: Preview */}
+          <div className="w-full md:w-1/2 flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden ring-1 ring-white/10 transition-all duration-300 hover:shadow-violet-500/10">
+            <div className="bg-slate-50/80 backdrop-blur-sm px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Eye size={16} className="text-violet-500" />
+                <span className="text-sm font-semibold text-slate-600 uppercase tracking-wider">
+                  Live Preview
+                </span>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-600">
+                KaTeX Powered
+              </span>
+            </div>
+            <div className="flex-1 p-8 overflow-auto bg-white">
+              <div className="prose prose-slate max-w-none text-slate-800 prose-headings:text-slate-900 prose-headings:font-bold prose-p:text-slate-800 prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:text-slate-50 prose-pre:rounded-xl prose-strong:text-slate-900 prose-li:text-slate-800">
+                <ReactMarkdown
+                  remarkPlugins={[remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                >
+                  {normalizedInput}
+                </ReactMarkdown>
+              </div>
+            </div>
           </div>
-          <div className="flex-1 p-8 overflow-auto prose prose-indigo max-w-none prose-img:rounded-lg prose-headings:font-bold prose-p:leading-relaxed prose-pre:bg-gray-800 prose-pre:text-white">
-            <ReactMarkdown
-              remarkPlugins={[remarkMath]}
-              rehypePlugins={[rehypeKatex]}
-            >
-              {normalizedInput}
-            </ReactMarkdown>
-          </div>
+
         </div>
       </main>
     </div>
