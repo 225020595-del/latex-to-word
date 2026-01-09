@@ -1,4 +1,4 @@
-import { Document, Packer, Paragraph, TextRun, ImageRun } from "docx";
+import { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel } from "docx";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkMath from "remark-math";
@@ -30,11 +30,7 @@ function convertLatexToSvg(latex: string, isInline: boolean): { svg: string; wid
       containerWidth: 80 * 16,
     });
     
-    // adaptor.innerHTML returns the container HTML, e.g., <mjx-container ...><svg ...>...</svg></mjx-container>
     const fullHtml = adaptor.innerHTML(node);
-    
-    // We need to extract the raw SVG string
-    // Simple regex to find <svg...>...</svg>
     const svgMatch = fullHtml.match(/<svg[\s\S]*?<\/svg>/);
     
     if (!svgMatch) {
@@ -43,19 +39,13 @@ function convertLatexToSvg(latex: string, isInline: boolean): { svg: string; wid
     }
     
     const svgString = svgMatch[0];
-    
-    // Extract dimensions from SVG string
-    // MathJax output format: width="X.Yex" height="A.Bex"
-    // We assume 1ex ≈ 8px for calculation (adjust as needed for Word)
     const widthMatch = svgString.match(/width="([\d.]+)ex"/);
     const heightMatch = svgString.match(/height="([\d.]+)ex"/);
     
     let width = 100;
     let height = 30;
     
-    // Convert ex to px (approximate)
-    // In Word, we might want to scale this up slightly for better visibility
-    const EX_TO_PX = 10; // Slightly increased scaling for better visibility
+    const EX_TO_PX = 10; 
     
     if (widthMatch && widthMatch[1]) {
       width = parseFloat(widthMatch[1]) * EX_TO_PX;
@@ -64,7 +54,6 @@ function convertLatexToSvg(latex: string, isInline: boolean): { svg: string; wid
       height = parseFloat(heightMatch[1]) * EX_TO_PX;
     }
     
-    // Ensure minimum dimensions to avoid invisible 0-size images
     width = Math.max(width, 10);
     height = Math.max(height, 10);
 
@@ -75,97 +64,139 @@ function convertLatexToSvg(latex: string, isInline: boolean): { svg: string; wid
   }
 }
 
+// Recursive helper to process AST nodes into Docx elements
+function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolean }): (TextRun | ImageRun)[] {
+  const results: (TextRun | ImageRun)[] = [];
+  
+  // Handle current node content
+  if (node.type === "text") {
+    // Split text by newlines to handle basic line breaks if any, 
+    // though in docx paragraphs usually handle structure.
+    // For now, we just add the text.
+    results.push(new TextRun({ 
+      text: node.value, 
+      bold: parentStyle?.bold, 
+      italics: parentStyle?.italics 
+    }));
+  } else if (node.type === "inlineMath") {
+    const result = convertLatexToSvg(node.value, true);
+    if (result) {
+      results.push(new ImageRun({
+        data: Buffer.from(result.svg),
+        transformation: { width: result.width, height: result.height },
+        type: "svg",
+        fallback: { data: FALLBACK_BUFFER, type: "png" }
+      }));
+    } else {
+      results.push(new TextRun({ text: `$${node.value}$`, color: "red" }));
+    }
+  } else if (node.type === "emphasis" || node.type === "strong") {
+    const isBold = node.type === "strong" || parentStyle?.bold;
+    const isItalic = node.type === "emphasis" || parentStyle?.italics;
+    
+    if (node.children) {
+      for (const child of node.children) {
+        results.push(...processNode(child, { bold: isBold, italics: isItalic }));
+      }
+    }
+  } else if (node.type === "link") {
+      // For simplicity, treat links as text for now, maybe with color
+      if (node.children) {
+        for (const child of node.children) {
+           // We can add color blue here manually if we want
+           results.push(...processNode(child, { ...parentStyle }));
+        }
+      }
+  } else if (node.children) {
+    // Fallback for other inline containers
+    for (const child of node.children) {
+      results.push(...processNode(child, parentStyle));
+    }
+  }
+
+  return results;
+}
+
 export async function createDocxFromMarkdown(markdown: string): Promise<string> {
-  // Parse Markdown
   const processor = unified().use(remarkParse).use(remarkMath);
   const ast = processor.parse(markdown);
 
-  const children: (Paragraph)[] = [];
+  const children: Paragraph[] = [];
 
-  // Simplified traversal
+  // Traverse top-level block nodes
   for (const node of (ast as any).children) {
     if (node.type === "paragraph") {
-      const runs: (TextRun | ImageRun)[] = [];
-      
-      for (const child of node.children) {
-        if (child.type === "text") {
-          runs.push(new TextRun(child.value));
-        } else if (child.type === "inlineMath") {
-           const result = convertLatexToSvg(child.value, true);
-           if (result) {
-             runs.push(
-               new ImageRun({
-                 data: Buffer.from(result.svg),
-                 transformation: {
-                   width: result.width,
-                   height: result.height,
-                 },
-                 type: "svg",
-                 fallback: {
-                    data: FALLBACK_BUFFER,
-                    type: "png",
-                 }
-               })
-             );
-           } else {
-             runs.push(new TextRun({ text: `$${child.value}$`, color: "red" }));
-           }
-        } else if (child.type === "emphasis") {
-           if (child.children?.[0]?.type === "text") {
-             runs.push(new TextRun({ text: child.children[0].value, italics: true }));
-           }
-        } else if (child.type === "strong") {
-           if (child.children?.[0]?.type === "text") {
-             runs.push(new TextRun({ text: child.children[0].value, bold: true }));
-           }
-        }
-      }
+      const runs = processNode(node);
       children.push(new Paragraph({ children: runs }));
-
     } else if (node.type === "math") {
       // Block Math
       const result = convertLatexToSvg(node.value, false);
       if (result) {
-        children.push(
-          new Paragraph({
-            children: [
-              new ImageRun({
-                data: Buffer.from(result.svg),
-                transformation: {
-                   width: result.width,
-                   height: result.height,
-                },
-                type: "svg",
-                fallback: {
-                    data: FALLBACK_BUFFER,
-                    type: "png",
-                 }
-              }),
-            ],
-            alignment: "center",
-            spacing: { before: 200, after: 200 }, // Add some space around block math
-          })
-        );
+        children.push(new Paragraph({
+          children: [new ImageRun({
+            data: Buffer.from(result.svg),
+            transformation: { width: result.width, height: result.height },
+            type: "svg",
+            fallback: { data: FALLBACK_BUFFER, type: "png" }
+          })],
+          alignment: "center",
+          spacing: { before: 200, after: 200 },
+        }));
       } else {
          children.push(new Paragraph({ children: [new TextRun({ text: `$$${node.value}$$`, color: "red" })] }));
       }
     } else if (node.type === "heading") {
-      children.push(
-        new Paragraph({
-          text: node.children?.[0]?.value || "",
-          heading: `Heading${node.depth}` as any,
-        })
-      );
+      const level = node.depth as number;
+      // Map depth to HeadingLevel enum
+      let headingLevel = HeadingLevel.HEADING_1;
+      if (level === 2) headingLevel = HeadingLevel.HEADING_2;
+      if (level === 3) headingLevel = HeadingLevel.HEADING_3;
+      if (level === 4) headingLevel = HeadingLevel.HEADING_4;
+      
+      const runs = processNode(node);
+      children.push(new Paragraph({
+        children: runs,
+        heading: headingLevel,
+        spacing: { before: 240, after: 120 }
+      }));
+    } else if (node.type === "list") {
+      // Handle Lists (ordered and unordered)
+      const isOrdered = node.ordered;
+      
+      // Iterate over list items
+      node.children.forEach((listItem: any, index: number) => {
+        // List items can have paragraphs inside. 
+        // We usually take the first paragraph's content.
+        
+        // Flatten list item children
+        // Simplified: Handle first paragraph of list item
+        const itemChildren = listItem.children;
+        
+        itemChildren.forEach((child: any) => {
+             if (child.type === "paragraph" || child.type === "text") {
+                 const runs = processNode(child);
+                 
+                 // Create paragraph with bullet/numbering
+                 // Note: docx.js numbering requires setting up numbering config in Document, 
+                 // but basic bullet property works for simple bullets.
+                 
+                 children.push(new Paragraph({
+                     children: runs,
+                     bullet: {
+                         level: 0 // Simple 1-level list support for now
+                     }
+                 }));
+             }
+        });
+      });
     }
   }
 
   const doc = new Document({
-    sections: [
-      {
-        properties: {},
-        children: children,
-      },
-    ],
+    sections: [{
+      properties: {},
+      children: children,
+    }],
   });
 
   const buffer = await Packer.toBuffer(doc);
