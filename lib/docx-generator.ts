@@ -70,9 +70,6 @@ function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolea
   
   // Handle current node content
   if (node.type === "text") {
-    // Split text by newlines to handle basic line breaks if any, 
-    // though in docx paragraphs usually handle structure.
-    // For now, we just add the text.
     results.push(new TextRun({ 
       text: node.value, 
       bold: parentStyle?.bold, 
@@ -100,10 +97,8 @@ function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolea
       }
     }
   } else if (node.type === "link") {
-      // For simplicity, treat links as text for now, maybe with color
       if (node.children) {
         for (const child of node.children) {
-           // We can add color blue here manually if we want
            results.push(...processNode(child, { ...parentStyle }));
         }
       }
@@ -115,6 +110,42 @@ function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolea
   }
 
   return results;
+}
+
+// New helper function to process list items recursively
+function processListItems(node: any, level: number = 0): Paragraph[] {
+  const paragraphs: Paragraph[] = [];
+  
+  node.children.forEach((listItem: any) => {
+    listItem.children.forEach((child: any) => {
+      if (child.type === "paragraph" || child.type === "text") {
+        const runs = processNode(child);
+        paragraphs.push(new Paragraph({
+          children: runs,
+          bullet: {
+            level: level 
+          }
+        }));
+      } else if (child.type === "list") {
+        // Recursive call for nested lists
+        paragraphs.push(...processListItems(child, level + 1));
+      } else {
+        // Handle other block types inside list items if needed
+        // For now, try to process as inline content if possible
+        const runs = processNode(child);
+        if (runs.length > 0) {
+           paragraphs.push(new Paragraph({
+             children: runs,
+             bullet: {
+               level: level
+             }
+           }));
+        }
+      }
+    });
+  });
+  
+  return paragraphs;
 }
 
 export async function createDocxFromMarkdown(markdown: string): Promise<string> {
@@ -162,35 +193,8 @@ export async function createDocxFromMarkdown(markdown: string): Promise<string> 
         spacing: { before: 240, after: 120 }
       }));
     } else if (node.type === "list") {
-      // Handle Lists (ordered and unordered)
-      const isOrdered = node.ordered;
-      
-      // Iterate over list items
-      node.children.forEach((listItem: any, index: number) => {
-        // List items can have paragraphs inside. 
-        // We usually take the first paragraph's content.
-        
-        // Flatten list item children
-        // Simplified: Handle first paragraph of list item
-        const itemChildren = listItem.children;
-        
-        itemChildren.forEach((child: any) => {
-             if (child.type === "paragraph" || child.type === "text") {
-                 const runs = processNode(child);
-                 
-                 // Create paragraph with bullet/numbering
-                 // Note: docx.js numbering requires setting up numbering config in Document, 
-                 // but basic bullet property works for simple bullets.
-                 
-                 children.push(new Paragraph({
-                     children: runs,
-                     bullet: {
-                         level: 0 // Simple 1-level list support for now
-                     }
-                 }));
-             }
-        });
-      });
+      // Improved List Handling: Support nested lists
+      children.push(...processListItems(node, 0));
     }
   }
 
