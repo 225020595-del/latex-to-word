@@ -148,10 +148,12 @@ export async function createDocxFromMarkdown(markdown: string): Promise<string> 
     } else if (node.type === "heading") {
       const level = node.depth as number;
       // Map depth to HeadingLevel enum
-      let headingLevel = HeadingLevel.HEADING_1;
+      let headingLevel: any = HeadingLevel.HEADING_1;
       if (level === 2) headingLevel = HeadingLevel.HEADING_2;
       if (level === 3) headingLevel = HeadingLevel.HEADING_3;
       if (level === 4) headingLevel = HeadingLevel.HEADING_4;
+      if (level === 5) headingLevel = HeadingLevel.HEADING_5;
+      if (level === 6) headingLevel = HeadingLevel.HEADING_6;
       
       const runs = processNode(node);
       children.push(new Paragraph({
