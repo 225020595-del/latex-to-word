@@ -8,6 +8,7 @@ import { Download, FileText, RefreshCw } from "lucide-react";
 import { saveAs } from "file-saver";
 import "katex/dist/katex.min.css";
 import { generateDocx } from "@/app/actions";
+import { normalizeLatex } from "@/lib/utils";
 
 export default function Converter() {
   const [input, setInput] = useState<string>(
@@ -15,12 +16,16 @@ export default function Converter() {
   );
   const [isExporting, setIsExporting] = useState(false);
 
+  // Normalized input for rendering and exporting
+  // We process the input on the fly to support \( ... \) and \[ ... \]
+  const normalizedInput = normalizeLatex(input);
+
   // Function to handle Docx Export
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      // Direct call to server action with raw markdown
-      const base64Data = await generateDocx(input);
+      // Use the normalized input for export as well
+      const base64Data = await generateDocx(normalizedInput);
 
       // Convert Base64 to Blob
       const response = await fetch(
@@ -93,7 +98,7 @@ export default function Converter() {
               remarkPlugins={[remarkMath]}
               rehypePlugins={[rehypeKatex]}
             >
-              {input}
+              {normalizedInput}
             </ReactMarkdown>
           </div>
         </div>
