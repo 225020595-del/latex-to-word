@@ -2,16 +2,7 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel, Math, MathRun } fro
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkMath from "remark-math";
-
-function cleanLatexForWord(latex: string): string {
-  // Word's linear format is close to LaTeX but has quirks.
-  // 1. Remove `\displaystyle`
-  let clean = latex.replace(/\\displaystyle/g, "");
-  // 2. Ensure spaces around operators?
-  // 3. Remove `\mathrm`? Word supports it but maybe fonts issue.
-  
-  return clean.trim();
-}
+import { latexToWordLinear } from "./latex-transformer";
 
 // Recursive helper to process AST nodes into Docx elements
 function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolean }): (TextRun | Math)[] {
@@ -26,7 +17,7 @@ function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolea
   } else if (node.type === "inlineMath") {
     results.push(new Math({
       children: [
-        new MathRun(cleanLatexForWord(node.value))
+        new MathRun(latexToWordLinear(node.value))
       ]
     }));
   } else if (node.type === "emphasis" || node.type === "strong") {
@@ -102,7 +93,7 @@ export async function createDocxFromMarkdown(markdown: string): Promise<string> 
         children: [
           new Math({
             children: [
-              new MathRun(cleanLatexForWord(node.value))
+              new MathRun(latexToWordLinear(node.value))
             ]
           })
         ],
