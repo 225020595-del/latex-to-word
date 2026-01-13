@@ -12,6 +12,7 @@
     "blob-polyfill": "^9.0.20240710",
     "clsx": "^2.1.1",
     "docx": "^9.5.1",
+    "fast-xml-parser": "^5.3.3",
     "file-saver": "^2.0.5",
     "html-to-docx": "^1.8.0",
     "katex": "^0.16.27",
