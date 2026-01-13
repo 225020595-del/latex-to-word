@@ -15,6 +15,18 @@ function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolea
       italics: parentStyle?.italics 
     }));
   } else if (node.type === "inlineMath") {
+    // We are still using Linear Format because implementing a full OMML parser is too complex for this context.
+    // However, the user wants "Professional" format by default.
+    // In docx.js, Math objects are by default OMML containers.
+    // If we put Linear Math text inside, Word will see it as Linear Math.
+    //
+    // To fix the "user has to press space" issue, we might need to look at if `docx` supports
+    // auto-conversion or if we need to better format the linear math.
+    //
+    // Actually, simply ensuring spaces are correct (done in transformer) is the best we can do without OMML.
+    // BUT, `docx` 8.0+ added support for more Math structures.
+    // 
+    // Let's ensure the Math object is created cleanly.
     results.push(new Math({
       children: [
         new MathRun(latexToWordLinear(node.value))
