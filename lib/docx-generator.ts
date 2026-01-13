@@ -1,16 +1,73 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, XmlComponent, Math, MathRun } from "docx";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } from "docx";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkMath from "remark-math";
-import { latexToWordLinear } from "./latex-transformer";
+import { mathjax } from "mathjax-full/js/mathjax.js";
+import { TeX } from "mathjax-full/js/input/tex.js";
+import { SVG } from "mathjax-full/js/output/svg.js";
+import { liteAdaptor } from "mathjax-full/js/adaptors/liteAdaptor.js";
+import { RegisterHTMLHandler } from "mathjax-full/js/handlers/html.js";
 
-// Revert to Linear Format for stability, as raw XML injection is risky in browser/node hybrid envs
-// and caused import issues.
-// We will rely on the improved `latex-transformer` to make the linear format robust.
+// Initialize MathJax
+const adaptor = liteAdaptor();
+RegisterHTMLHandler(adaptor);
+
+const tex = new TeX({ packages: ["base", "ams"] });
+const svg = new SVG({ fontCache: "none" });
+const html = mathjax.document("", { InputJax: tex, OutputJax: svg });
+
+// 1x1 transparent PNG fallback for older Word versions
+const FALLBACK_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+const FALLBACK_BUFFER = Buffer.from(FALLBACK_IMAGE_BASE64, "base64");
+
+// Helper to convert LaTeX to SVG string and extract dimensions
+function convertLatexToSvg(latex: string, isInline: boolean): { svg: string; width: number; height: number } | null {
+  try {
+    const node = html.convert(latex, {
+      display: !isInline,
+      em: 16,
+      ex: 8,
+      containerWidth: 80 * 16,
+    });
+    
+    const fullHtml = adaptor.innerHTML(node);
+    const svgMatch = fullHtml.match(/<svg[\s\S]*?<\/svg>/);
+    
+    if (!svgMatch) {
+      console.warn("No SVG found in MathJax output:", fullHtml);
+      return null;
+    }
+    
+    const svgString = svgMatch[0];
+    const widthMatch = svgString.match(/width="([\d.]+)ex"/);
+    const heightMatch = svgString.match(/height="([\d.]+)ex"/);
+    
+    let width = 100;
+    let height = 30;
+    
+    // Increased scale for better quality in Word
+    const EX_TO_PX = 12; 
+    
+    if (widthMatch && widthMatch[1]) {
+      width = parseFloat(widthMatch[1]) * EX_TO_PX;
+    }
+    if (heightMatch && heightMatch[1]) {
+      height = parseFloat(heightMatch[1]) * EX_TO_PX;
+    }
+    
+    width = Math.max(width, 10);
+    height = Math.max(height, 10);
+
+    return { svg: svgString, width, height };
+  } catch (e) {
+    console.error("MathJax conversion error:", e);
+    return null;
+  }
+}
 
 // Recursive helper to process AST nodes into Docx elements
-function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolean }): (TextRun | Math)[] {
-  const results: (TextRun | Math)[] = [];
+function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolean }): (TextRun | ImageRun)[] {
+  const results: (TextRun | ImageRun)[] = [];
   
   if (node.type === "text") {
     results.push(new TextRun({ 
@@ -19,12 +76,17 @@ function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolea
       italics: parentStyle?.italics 
     }));
   } else if (node.type === "inlineMath") {
-    // Improved Linear Format usage
-    results.push(new Math({
-      children: [
-        new MathRun(latexToWordLinear(node.value))
-      ]
-    }));
+    const result = convertLatexToSvg(node.value, true);
+    if (result) {
+      results.push(new ImageRun({
+        data: Buffer.from(result.svg),
+        transformation: { width: result.width, height: result.height },
+        type: "svg",
+        fallback: { data: FALLBACK_BUFFER, type: "png" }
+      }));
+    } else {
+      results.push(new TextRun({ text: `$${node.value}$`, color: "red" }));
+    }
   } else if (node.type === "emphasis" || node.type === "strong") {
     const isBold = node.type === "strong" || parentStyle?.bold;
     const isItalic = node.type === "emphasis" || parentStyle?.italics;
@@ -94,16 +156,21 @@ export async function createDocxFromMarkdown(markdown: string): Promise<string> 
       children.push(new Paragraph({ children: runs }));
     } else if (node.type === "math") {
       // Block Math
-      children.push(new Paragraph({
-        children: [
-          new Math({
-            children: [
-              new MathRun(latexToWordLinear(node.value))
-            ]
-          })
-        ],
-        alignment: "center", // Center block math
-      }));
+      const result = convertLatexToSvg(node.value, false);
+      if (result) {
+        children.push(new Paragraph({
+          children: [new ImageRun({
+            data: Buffer.from(result.svg),
+            transformation: { width: result.width, height: result.height },
+            type: "svg",
+            fallback: { data: FALLBACK_BUFFER, type: "png" }
+          })],
+          alignment: "center",
+          spacing: { before: 200, after: 200 },
+        }));
+      } else {
+         children.push(new Paragraph({ children: [new TextRun({ text: `$$${node.value}$$`, color: "red" })] }));
+      }
     } else if (node.type === "heading") {
       const level = node.depth as number;
       let headingLevel: any = HeadingLevel.HEADING_1;
