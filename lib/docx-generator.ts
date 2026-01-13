@@ -1,55 +1,16 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, XmlComponent, Math } from "docx";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, XmlComponent, Math, MathRun } from "docx";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkMath from "remark-math";
-import { mathjax } from "mathjax-full/js/mathjax.js";
-import { TeX } from "mathjax-full/js/input/tex.js";
-import { OmmlVisitor } from "./omml-visitor";
+import { latexToWordLinear } from "./latex-transformer";
 
-// Initialize MathJax for OMML generation
-const tex = new TeX({ packages: ["base", "ams"] });
-// We don't need a full document, just input jax. 
-// But mathjax-full API requires a document or similar context to parse.
-// We can use a minimal setup.
-// Actually, `tex.parse` returns MmlNode which is what we need.
-// BUT `tex.parse` is internal. 
-// The standard way is `mathjax.document(...).convert(...)`.
-
-// Create a visitor instance
-const ommlVisitor = new OmmlVisitor();
-
-function convertLatexToOmml(latex: string, display: boolean): any {
-  try {
-    // 1. Parse LaTeX to MathJax Internal MmlNode
-    // We create a new MathDocument for each conversion to ensure clean state or reuse?
-    // Reusing is better.
-    // Note: `mathjax.document` requires an adaptor.
-    // We can use `liteAdaptor`.
-    const { liteAdaptor } = require("mathjax-full/js/adaptors/liteAdaptor.js");
-    const { RegisterHTMLHandler } = require("mathjax-full/js/handlers/html.js");
-    const adaptor = liteAdaptor();
-    RegisterHTMLHandler(adaptor);
-    
-    const html = mathjax.document("", { InputJax: tex });
-    
-    // Convert to MathItem (which holds the MmlNode tree)
-    const mathItem = html.convert(latex, { display: display });
-    
-    // 2. Visit the MmlNode tree to generate OMML XML string
-    const ommlString = ommlVisitor.visitTree(mathItem);
-    
-    // 3. Return as XmlComponent for docx
-    return new XmlComponent(ommlString);
-  } catch (e) {
-    console.error("OMML conversion error:", e);
-    // Fallback to text if conversion fails
-    return new TextRun(`[Error: ${latex}]`);
-  }
-}
+// Revert to Linear Format for stability, as raw XML injection is risky in browser/node hybrid envs
+// and caused import issues.
+// We will rely on the improved `latex-transformer` to make the linear format robust.
 
 // Recursive helper to process AST nodes into Docx elements
-function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolean }): (TextRun | XmlComponent)[] {
-  const results: (TextRun | XmlComponent)[] = [];
+function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolean }): (TextRun | Math)[] {
+  const results: (TextRun | Math)[] = [];
   
   if (node.type === "text") {
     results.push(new TextRun({ 
@@ -58,8 +19,12 @@ function processNode(node: any, parentStyle?: { bold?: boolean; italics?: boolea
       italics: parentStyle?.italics 
     }));
   } else if (node.type === "inlineMath") {
-    // Use OMML converter
-    results.push(convertLatexToOmml(node.value, false));
+    // Improved Linear Format usage
+    results.push(new Math({
+      children: [
+        new MathRun(latexToWordLinear(node.value))
+      ]
+    }));
   } else if (node.type === "emphasis" || node.type === "strong") {
     const isBold = node.type === "strong" || parentStyle?.bold;
     const isItalic = node.type === "emphasis" || parentStyle?.italics;
@@ -128,13 +93,16 @@ export async function createDocxFromMarkdown(markdown: string): Promise<string> 
       const runs = processNode(node);
       children.push(new Paragraph({ children: runs }));
     } else if (node.type === "math") {
-      // Block Math -> Display Mode
-      // We wrap it in a paragraph
+      // Block Math
       children.push(new Paragraph({
         children: [
-          convertLatexToOmml(node.value, true)
+          new Math({
+            children: [
+              new MathRun(latexToWordLinear(node.value))
+            ]
+          })
         ],
-        alignment: "center", 
+        alignment: "center", // Center block math
       }));
     } else if (node.type === "heading") {
       const level = node.depth as number;
